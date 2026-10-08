@@ -1,0 +1,17 @@
+# Python environment and cache
+venv/
+__pycache__/
+*.pyc
+
+# Secrets: never upload
+.env
+
+# Patient data and AI results
+.cache/
+.prescriptions/
+samples/
+*.pdf
+
+# Editor / OS files
+.vscode/
+Thumbs.db

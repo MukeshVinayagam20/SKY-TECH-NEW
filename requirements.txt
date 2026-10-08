@@ -1,0 +1,9 @@
+streamlit
+pymupdf
+pillow
+pydantic
+python-dotenv
+pandas
+ollama
+google-genai
+reportlab
