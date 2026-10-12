@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Personal Health Copilot</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h2>👤 Patient details</h2>
+      <p class="hint">Normal ranges depend on age and sex. Fill these for an accurate report.</p>
+      <form id="profile-form">
+        <label>Name (optional)
+          <input type="text" name="name" id="f-name">
+        </label>
+        <label>Age (years)
+          <input type="number" name="age" id="f-age" min="0" max="120" step="1" placeholder="0 = use age on report">
+        </label>
+        <label>Sex
+          <select name="sex" id="f-sex">
+            <option>From report</option>
+            <option>Male</option>
+            <option>Female</option>
+          </select>
+        </label>
+        <label>Weight (kg)
+          <input type="number" name="weight" id="f-weight" min="0" max="300" step="0.5">
+        </label>
+        <label>Height (cm)
+          <input type="number" name="height" id="f-height" min="0" max="250" step="0.5">
+        </label>
+      </form>
+    </aside>
+
+    <main class="content">
+      <h1>🩺 Personal Health Copilot</h1>
+      <p class="caption">Upload a lab report, prescription or discharge summary and get a simple, detailed explanation.</p>
+      <div class="banner info">⚕️ This tool explains your records in simple words. It does <b>not</b> diagnose or prescribe. Always confirm with your doctor before changing any treatment.</div>
+
+      <div class="upload-row">
+        <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.pdf">
+        <button id="analyze-btn" class="primary" disabled>🔍 Analyse document</button>
+      </div>
+      <div id="upload-error" class="banner error" hidden></div>
+
+      <div id="workspace" hidden>
+        <div class="columns">
+          <div class="col-left">
+            <h3>📄 Your document</h3>
+            <div id="image-preview"></div>
+          </div>
+          <div class="col-right">
+            <div id="analyzing" class="banner info" hidden>⏳ Analysing your document, this can take a minute...</div>
+
+            <div id="results" hidden>
+              <p id="profile-line" class="profile-line"></p>
+              <p id="doc-meta" class="caption"></p>
+
+              <div class="metrics">
+                <div class="metric"><span id="m-checked">0</span><label>Tests checked</label></div>
+                <div class="metric"><span id="m-normal">0</span><label>Normal</label></div>
+                <div class="metric"><span id="m-attention">0</span><label>Need attention</label></div>
+              </div>
+              <div id="critical-alert" class="banner error" hidden></div>
+
+              <button id="pdf-top" class="primary full">⬇️ Download report (PDF)</button>
+
+              <div class="tabs">
+                <button class="tab-btn active" data-tab="report">📋 Simple report</button>
+                <button class="tab-btn" data-tab="tests">🧪 Test results</button>
+                <button class="tab-btn" data-tab="meds">💊 Medicines</button>
+                <button class="tab-btn" data-tab="doctor">🩺 Doctor review</button>
+                <button class="tab-btn" data-tab="data">🗂️ Extracted data</button>
+              </div>
+
+              <section class="tab-panel" id="tab-report"></section>
+              <section class="tab-panel" id="tab-tests" hidden></section>
+              <section class="tab-panel" id="tab-meds" hidden></section>
+              <section class="tab-panel" id="tab-doctor" hidden></section>
+              <section class="tab-panel" id="tab-data" hidden></section>
+
+              <p class="caption disclaimer">⚕️ This report explains your document in simple words. It is not a diagnosis or a prescription. Always follow your doctor's advice.</p>
+              <hr>
+              <button id="pdf-bottom" class="primary full">⬇️ Download report (PDF)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -32,3 +32,25 @@ def load(kind: str, key: str, model_cls: type[BaseModel]):
 def save(kind: str, key: str, obj: BaseModel):
     CACHE_DIR.mkdir(exist_ok=True)
     (CACHE_DIR / f"{kind}_{key}.json").write_text(obj.model_dump_json(), encoding="utf-8")
+
+
+# ---- uploaded page images, so the browser can re-fetch them by key ----
+IMAGES_DIR = CACHE_DIR / "images"
+
+
+def save_images(key: str, images: list[bytes]):
+    folder = IMAGES_DIR / key
+    if not folder.exists():
+        folder.mkdir(parents=True, exist_ok=True)
+        for i, img in enumerate(images):
+            (folder / f"{i}.jpg").write_bytes(img)
+
+
+def image_path(key: str, index: int) -> Path | None:
+    path = IMAGES_DIR / key / f"{index}.jpg"
+    return path if path.exists() else None
+
+
+def image_count(key: str) -> int:
+    folder = IMAGES_DIR / key
+    return len(list(folder.glob("*.jpg"))) if folder.exists() else 0
