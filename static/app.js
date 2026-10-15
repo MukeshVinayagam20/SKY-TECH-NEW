@@ -1,8 +1,3 @@
-const STATUS_NAMES = {
-  NORMAL: "Normal", LOW: "Low", HIGH: "High",
-  "CRITICAL LOW": "Critical low", "CRITICAL HIGH": "Critical high",
-  TEXT: "Descriptive", UNKNOWN: "Unknown",
-};
 const FOOD_OPTIONS_FALLBACK = ["After food", "Before food", "With food", "Empty stomach", "Any time"];
 
 let currentResult = null;
@@ -27,6 +22,8 @@ el("analyze-btn").addEventListener("click", async () => {
   el("analyzing").hidden = false;
   el("image-preview").innerHTML = "";
 
+  const langInput = document.querySelector('input[name="language"]:checked');
+
   const form = new FormData();
   form.append("file", file);
   form.append("name", el("f-name").value);
@@ -34,6 +31,7 @@ el("analyze-btn").addEventListener("click", async () => {
   form.append("sex", el("f-sex").value);
   form.append("weight", el("f-weight").value);
   form.append("height", el("f-height").value);
+  form.append("language", langInput ? langInput.value : "English");
 
   try {
     const res = await fetch("/api/analyze", { method: "POST", body: form });
@@ -63,22 +61,38 @@ function renderImagePreview(result) {
 // ---------------- render top-level result ----------------
 function renderResult(r) {
   el("results").hidden = false;
+  const L = r.labels;
+
+  if (r.language) {
+    const langInput = document.querySelector(`input[name="language"][value="${r.language}"]`);
+    if (langInput) langInput.checked = true;
+  }
 
   el("profile-line").textContent = r.profile_lines.map(([k, v]) => `${k}: ${v}`).join("  ·  ");
   el("doc-meta").textContent =
-    `Document: ${r.document.type} · Date: ${r.document.date} · Doctor: ${r.document.doctor} · Lab: ${r.document.facility}`;
+    `${L.document}: ${r.document.type} · ${L.date}: ${r.document.date} · ${L.doctor}: ${r.document.doctor} · ${L.lab}: ${r.document.facility}`;
 
   el("m-checked").textContent = r.counts.checked;
   el("m-normal").textContent = r.counts.normal;
   el("m-attention").textContent = r.counts.attention;
+  el("m-checked-label").textContent = L.tests_checked;
+  el("m-normal-label").textContent = L.normal;
+  el("m-attention-label").textContent = L.need_attention;
 
   if (r.critical.length) {
     el("critical-alert").hidden = false;
-    el("critical-alert").textContent =
-      `🔴 Some values are far outside the normal range: ${r.critical.join(", ")}. Please contact your doctor today.`;
+    el("critical-alert").textContent = `🔴 ${L.critical_alert.replace("{tests}", r.critical.join(", "))}`;
   } else {
     el("critical-alert").hidden = true;
   }
+
+  el("pdf-top").textContent = L.download_pdf;
+  el("pdf-bottom").textContent = L.download_pdf;
+  el("tab-btn-report").textContent = L.tab_report;
+  el("tab-btn-tests").textContent = L.tab_tests;
+  el("tab-btn-meds").textContent = L.tab_meds;
+  el("tab-btn-data").textContent = L.tab_data;
+  el("report-disclaimer").textContent = `⚕️ ${L.disclaimer}`;
 
   renderReportTab(r);
   renderTestsTab(r);
@@ -102,43 +116,47 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 
 // ---------------- report tab ----------------
 function renderReportTab(r) {
-  let html = `<h3>Summary</h3><p>${esc(r.report.overall_summary)}</p>`;
+  const L = r.labels;
+  let html = `<h3>${esc(L.summary)}</h3><p>${esc(r.report.overall_summary)}</p>`;
 
   if (r.report.normal_results.length) {
-    html += `<div class="banner success"><b>✅ Good news: normal results</b><ul>${
-      r.report.normal_results.map((n) => `<li>${esc(n.test)}: ${esc(n.value)} is within the normal range (${esc(n.range)})</li>`).join("")
+    html += `<div class="banner success"><b>✅ ${esc(L.normal_results)}</b><ul>${
+      r.report.normal_results.map((n) => `<li>${esc(L.normal_line
+        .replace("{test}", n.test).replace("{value}", n.value).replace("{range}", n.range))}</li>`).join("")
     }</ul></div>`;
   }
 
   if (r.report.findings.length) {
-    html += `<h3>⚠️ What needs attention</h3>`;
+    html += `<h3>⚠️ ${esc(L.needs_attention)}</h3>`;
     for (const f of r.report.findings) {
       const kind = f.urgency === "urgent" ? "error" : f.urgency === "see_doctor_soon" ? "warning" : "info";
       const icon = f.urgency === "urgent" ? "🔴" : f.urgency === "see_doctor_soon" ? "🟠" : "🟢";
       html += `<details class="finding" open><summary>${esc(f.test_name)} · ${icon} ${esc(f.urgency_label)}</summary>
         <div class="body">`;
       if (f.value) {
-        html += `<p><b>Your value: ${esc(f.value.value_fmt)} · Normal for you: ${esc(f.value.range_fmt)} · ${f.value.status_icon} ${esc(STATUS_NAMES[f.value.status] || f.value.status)}</b></p>`;
+        html += `<p><b>${esc(L.your_value_line
+          .replace("{value}", f.value.value_fmt).replace("{range}", f.value.range_fmt)
+          .replace("{status}", `${f.value.status_icon} ${f.value.status_name}`))}</b></p>`;
       }
       html += `<div class="banner ${kind}">${esc(f.what_your_result_means)}</div>
-        <p><b>What this test measures:</b> ${esc(f.what_it_measures)}</p>
+        <p><b>${esc(L.what_measures)}:</b> ${esc(f.what_it_measures)}</p>
         <div class="two-col">
-          <div><b>Possible causes</b>${bullets(f.possible_causes)}</div>
-          <div><b>Food & lifestyle tips</b>${bullets(f.food_and_lifestyle_tips)}</div>
+          <div><b>${esc(L.possible_causes)}</b>${bullets(f.possible_causes)}</div>
+          <div><b>${esc(L.food_tips)}</b>${bullets(f.food_and_lifestyle_tips)}</div>
         </div>
-        <p><b>What your doctor may do</b>${bullets(f.what_your_doctor_may_do)}</p>
+        <p><b>${esc(L.doctor_may)}</b>${bullets(f.what_your_doctor_may_do)}</p>
       </div></details>`;
     }
   }
 
   if (r.report.diet_and_lifestyle.length) {
-    html += `<h3>🥗 Diet & lifestyle</h3>${bullets(r.report.diet_and_lifestyle)}`;
+    html += `<h3>🥗 ${esc(L.diet)}</h3>${bullets(r.report.diet_and_lifestyle)}`;
   }
   if (r.report.questions_for_doctor.length) {
-    html += `<h3>❓ Questions to ask your doctor</h3>${bullets(r.report.questions_for_doctor)}`;
+    html += `<h3>❓ ${esc(L.questions)}</h3>${bullets(r.report.questions_for_doctor)}`;
   }
   if (r.report.warning_signs.length) {
-    html += `<div class="banner warning"><b>🚨 See a doctor quickly if you notice:</b>${bullets(r.report.warning_signs)}</div>`;
+    html += `<div class="banner warning"><b>🚨 ${esc(L.warning)}:</b>${bullets(r.report.warning_signs)}</div>`;
   }
 
   el("tab-report").innerHTML = html;
@@ -146,13 +164,14 @@ function renderReportTab(r) {
 
 // ---------------- tests tab ----------------
 function renderTestsTab(r) {
+  const L = r.labels;
   if (!r.flags.length) { el("tab-tests").innerHTML = "<p>-</p>"; return; }
   let rows = r.flags.map((f) => `<tr style="background:${f.status_bg}">
-    <td>${f.status_icon} ${esc(STATUS_NAMES[f.status] || f.status)}</td>
+    <td>${f.status_icon} ${esc(f.status_name)}</td>
     <td>${esc(f.test_name)}</td><td>${esc(f.value_fmt)}</td>
     <td>${esc(f.range_fmt)}</td><td>${esc(f.note)}</td></tr>`).join("");
   el("tab-tests").innerHTML = `<table class="results">
-    <thead><tr><th>Status</th><th>Test</th><th>Your value</th><th>Normal range (your age/sex)</th><th>Note</th></tr></thead>
+    <thead><tr><th>${esc(L.status)}</th><th>${esc(L.test)}</th><th>${esc(L.your_value)}</th><th>${esc(L.normal_range)}</th><th>${esc(L.note)}</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -177,18 +196,19 @@ function renderMedsTab(r) {
     html += `<div class="banner info">⏳ No doctor-approved prescription yet. Medicines are shown here only after a doctor reviews this report and approves them.</div>`;
   }
 
-  html += `<hr><h3>💊 Medicines written on the uploaded document</h3>`;
+  const L = r.labels;
+  html += `<hr><h3>💊 ${esc(L.medicines)}</h3>`;
   if (r.report.medicines.length) {
     for (const m of r.report.medicines) {
       html += `<div class="medicine-card"><h4>💊 ${esc(m.name)}</h4>
-        <p><b>Usually used for:</b> ${esc(m.used_for)}</p>
-        <p><b>How to take (as written):</b> ${esc(m.how_to_take)}</p>
-        <p><b>Common side effects:</b> ${esc(m.common_side_effects.join(", "))}</p>
-        <p><b>Precautions:</b> ${esc(m.precautions.join("; "))}</p></div>`;
+        <p><b>${esc(L.used_for)}:</b> ${esc(m.used_for)}</p>
+        <p><b>${esc(L.how_to_take)}:</b> ${esc(m.how_to_take)}</p>
+        <p><b>${esc(L.side_effects)}:</b> ${esc(m.common_side_effects.join(", "))}</p>
+        <p><b>${esc(L.precautions)}:</b> ${esc(m.precautions.join("; "))}</p></div>`;
     }
-    html += `<p class="caption">Do not start, stop or change any medicine without asking your doctor.</p>`;
+    html += `<p class="caption">${esc(L.meds_caution)}</p>`;
   } else {
-    html += `<p>No medicines in this document.</p>`;
+    html += `<p>${esc(L.no_meds)}</p>`;
   }
 
   el("tab-meds").innerHTML = html;

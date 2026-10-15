@@ -4,6 +4,7 @@ Needs:  pip install reportlab
 """
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -11,10 +12,26 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (KeepTogether, Paragraph,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
 from .i18n import LABELS, fmt_range, fmt_value, profile_lines
+
+# ---------------- Tamil font (built-in PDF fonts have no Tamil glyphs) ----------------
+_FONTS_DIR = Path(__file__).resolve().parent.parent / "data" / "fonts"
+TAMIL_FONT, TAMIL_FONT_BOLD = "Helvetica", "Helvetica-Bold"
+try:
+    pdfmetrics.registerFont(TTFont("NotoTamil", str(_FONTS_DIR / "NotoSansTamil-Static-Regular.ttf")))
+    pdfmetrics.registerFont(TTFont("NotoTamil-Bold", str(_FONTS_DIR / "NotoSansTamil-Static-Bold.ttf")))
+    pdfmetrics.registerFontFamily("NotoTamil", normal="NotoTamil", bold="NotoTamil-Bold",
+                                  italic="NotoTamil", boldItalic="NotoTamil-Bold")
+    TAMIL_FONT, TAMIL_FONT_BOLD = "NotoTamil", "NotoTamil-Bold"
+except Exception as e:
+    print(f"[pdf_report] could not load Tamil font, Tamil PDFs will show boxes: {e}")
+
+FONTS_BY_LANGUAGE = {"English": ("Helvetica", "Helvetica-Bold"), "Tamil": (TAMIL_FONT, TAMIL_FONT_BOLD)}
 
 TEAL = colors.HexColor("#0d6e6e")
 DARK = colors.HexColor("#212529")
@@ -34,27 +51,36 @@ URGENCY_FILL = {"routine": colors.HexColor("#e8f5e9"),
                 "see_doctor_soon": colors.HexColor("#fff3e0"),
                 "urgent": colors.HexColor("#ffcdd2")}
 
-S = {
-    "body": ParagraphStyle("body", fontName="Helvetica", fontSize=10, leading=14, textColor=DARK),
-    "small": ParagraphStyle("small", fontName="Helvetica", fontSize=8.5, leading=11.5, textColor=DARK),
-    "muted": ParagraphStyle("muted", fontName="Helvetica", fontSize=9.5, leading=13, textColor=GREY),
-    "label": ParagraphStyle("label", fontName="Helvetica-Bold", fontSize=10, leading=14,
-                            textColor=DARK, spaceBefore=4),
-    "h1": ParagraphStyle("h1", fontName="Helvetica-Bold", fontSize=19, leading=23,
-                         textColor=colors.white),
-    "h1sub": ParagraphStyle("h1sub", fontName="Helvetica", fontSize=9.5, leading=12,
-                            textColor=colors.HexColor("#cfe8e8")),
-    "h2": ParagraphStyle("h2", fontName="Helvetica-Bold", fontSize=13.5, leading=17,
-                         textColor=TEAL, spaceBefore=12, spaceAfter=4),
-    "h3": ParagraphStyle("h3", fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=DARK),
-    "value": ParagraphStyle("value", fontName="Helvetica-Bold", fontSize=9.5, leading=13,
-                            textColor=TEAL),
-    "cell": ParagraphStyle("cell", fontName="Helvetica", fontSize=9, leading=11.5, textColor=DARK),
-    "cellb": ParagraphStyle("cellb", fontName="Helvetica-Bold", fontSize=9, leading=11.5,
-                            textColor=DARK),
-    "head": ParagraphStyle("head", fontName="Helvetica-Bold", fontSize=9, leading=11.5,
-                           textColor=colors.white),
-}
+def _make_styles(font="Helvetica", font_bold="Helvetica-Bold") -> dict:
+    styles = {
+        "body": ParagraphStyle("body", fontName=font, fontSize=10, leading=14, textColor=DARK),
+        "small": ParagraphStyle("small", fontName=font, fontSize=8.5, leading=11.5, textColor=DARK),
+        "muted": ParagraphStyle("muted", fontName=font, fontSize=9.5, leading=13, textColor=GREY),
+        "label": ParagraphStyle("label", fontName=font_bold, fontSize=10, leading=14,
+                                textColor=DARK, spaceBefore=4),
+        "h1": ParagraphStyle("h1", fontName=font_bold, fontSize=19, leading=23,
+                             textColor=colors.white),
+        "h1sub": ParagraphStyle("h1sub", fontName=font, fontSize=9.5, leading=12,
+                                textColor=colors.HexColor("#cfe8e8")),
+        "h2": ParagraphStyle("h2", fontName=font_bold, fontSize=13.5, leading=17,
+                             textColor=TEAL, spaceBefore=12, spaceAfter=4),
+        "h3": ParagraphStyle("h3", fontName=font_bold, fontSize=11, leading=14, textColor=DARK),
+        "value": ParagraphStyle("value", fontName=font_bold, fontSize=9.5, leading=13,
+                                textColor=TEAL),
+        "cell": ParagraphStyle("cell", fontName=font, fontSize=9, leading=11.5, textColor=DARK),
+        "cellb": ParagraphStyle("cellb", fontName=font_bold, fontSize=9, leading=11.5,
+                                textColor=DARK),
+        "head": ParagraphStyle("head", fontName=font_bold, fontSize=9, leading=11.5,
+                               textColor=colors.white),
+    }
+    # Tamil needs HarfBuzz shaping (pip install uharfbuzz): without it, vowel signs
+    # such as ெ ே ை are drawn after the consonant instead of before it.
+    for st in styles.values():
+        st.shaping = 1
+    return styles
+
+
+S = _make_styles()
 
 
 def _clean(text) -> str:
@@ -63,14 +89,14 @@ def _clean(text) -> str:
             .replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"'))
 
 
-def _p(text, style="body"):
-    return Paragraph(escape(_clean(text)), S[style] if isinstance(style, str) else style)
+def _p(text, style="body", styles=S):
+    return Paragraph(escape(_clean(text)), styles[style] if isinstance(style, str) else style)
 
 
-def _bullets(items, style="body"):
-    base = S[style]
+def _bullets(items, style="body", styles=S):
+    base = styles[style]
     bstyle = ParagraphStyle(f"b_{style}", parent=base, leftIndent=14, bulletIndent=3,
-                            spaceAfter=1.5, bulletColor=TEAL, bulletFontName="Helvetica-Bold")
+                            spaceAfter=1.5, bulletColor=TEAL, bulletFontName=base.fontName)
     # returns a plain list of paragraphs (safe inside tables and KeepTogether)
     return [Paragraph(escape(_clean(i)), bstyle, bulletText="\u2022") for i in items]
 
@@ -85,24 +111,42 @@ def _box(flowables, fill, pad=7):
     return t
 
 
-def _h2(text):
-    return [_p(text, "h2"),
+def _h2(text, styles=S):
+    return [_p(text, "h2", styles),
             Table([[""]], colWidths=["100%"], rowHeights=[1.2],
                   style=[("LINEABOVE", (0, 0), (-1, -1), 1.2, TEAL)]),
             Spacer(1, 4)]
 
 
-def _footer(canvas, doc_tpl, text):
+def _make_helpers(styles: dict):
+    """Returns (p, bullets, h2) bound to a given language's font styles."""
+    def p(text, style="body"):
+        return _p(text, style, styles)
+
+    def bullets(items, style="body"):
+        return _bullets(items, style, styles)
+
+    def h2(text):
+        return _h2(text, styles)
+
+    return p, bullets, h2
+
+
+def _footer(canvas, doc_tpl, text, font="Helvetica"):
     canvas.saveState()
-    canvas.setFont("Helvetica", 7.5)
+    canvas.setFont(font, 7.5)
     canvas.setFillColor(GREY)
-    canvas.drawCentredString(A4[0] / 2, 10 * mm, f"{text}   |   Page {doc_tpl.page}")
+    canvas.drawCentredString(A4[0] / 2, 10 * mm, f"{text}   |   Page {doc_tpl.page}",
+                             shaping=True)
     canvas.restoreState()
 
 
 def build_pdf(report, flags, profile: dict, doc, language: str = "English",
               prescription=None) -> bytes:
-    L = LABELS["English"]
+    L = LABELS[language]
+    font, font_bold = FONTS_BY_LANGUAGE.get(language, FONTS_BY_LANGUAGE["English"])
+    styles = _make_styles(font, font_bold)
+    _p, _bullets, _h2 = _make_helpers(styles)
     buf = BytesIO()
     tpl = SimpleDocTemplate(buf, pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm,
                             topMargin=14 * mm, bottomMargin=18 * mm,
@@ -121,7 +165,7 @@ def build_pdf(report, flags, profile: dict, doc, language: str = "English",
     story += [header, Spacer(1, 8)]
 
     # ---- patient + document info (2 columns) ----
-    info = profile_lines(profile, "English")
+    info = profile_lines(profile, language)
     info += [(L["document"], doc.document_type.replace("_", " ").title()),
              (L["date"], doc.document_date or "-"),
              (L["doctor"], doc.doctor_name or "-"),
@@ -130,7 +174,7 @@ def build_pdf(report, flags, profile: dict, doc, language: str = "English",
     if len(cells) % 2:
         cells.append(["", ""])
     rows = [cells[i] + cells[i + 1] for i in range(0, len(cells), 2)]
-    info_t = Table(rows, colWidths=[width * 0.14, width * 0.36, width * 0.14, width * 0.36])
+    info_t = Table(rows, colWidths=[width * 0.18, width * 0.32, width * 0.18, width * 0.32])
     info_t.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEBELOW", (0, 0), (-1, -1), 0.4, LINE),
@@ -143,8 +187,8 @@ def build_pdf(report, flags, profile: dict, doc, language: str = "English",
     measured = [f for f in flags if f.status not in ("TEXT", "UNKNOWN")]
     abnormal = [f for f in measured if f.status != "NORMAL"]
     critical = [f.test_name for f in abnormal if f.status.startswith("CRITICAL")]
-    stat_style = ParagraphStyle("stat", parent=S["h3"], alignment=TA_CENTER, fontSize=16, leading=19)
-    lab_style = ParagraphStyle("statl", parent=S["muted"], alignment=TA_CENTER, fontSize=8.5)
+    stat_style = ParagraphStyle("stat", parent=styles["h3"], alignment=TA_CENTER, fontSize=16, leading=19)
+    lab_style = ParagraphStyle("statl", parent=styles["muted"], alignment=TA_CENTER, fontSize=8.5)
     glance = Table([[Paragraph(str(len(measured)), stat_style),
                      Paragraph(str(len(measured) - len(abnormal)), stat_style),
                      Paragraph(str(len(abnormal)), stat_style)],
@@ -162,7 +206,7 @@ def build_pdf(report, flags, profile: dict, doc, language: str = "English",
     if critical:
         story += [Spacer(1, 6), _box([Paragraph(
             "<b>" + escape(_clean(L["critical_alert"].format(tests=", ".join(critical)))) + "</b>",
-            S["body"])], STATUS_FILL["CRITICAL HIGH"])]
+            styles["body"])], STATUS_FILL["CRITICAL HIGH"])]
 
     # ---- summary ----
     story += _h2(L["summary"]) + [_p(report.overall_summary)]
@@ -179,7 +223,7 @@ def build_pdf(report, flags, profile: dict, doc, language: str = "English",
         ]
         for r, f in enumerate(flags, start=1):
             status_p = Paragraph(f"<b>{escape(L['status_names'].get(f.status, f.status))}</b>",
-                                 ParagraphStyle("st", parent=S["cell"],
+                                 ParagraphStyle("st", parent=styles["cell"],
                                                 textColor=STATUS_TEXT.get(f.status, DARK)))
             data.append([_p(f.test_name, "cell"), _p(fmt_value(f), "cell"),
                          _p(fmt_range(f), "cell"), status_p])
@@ -253,8 +297,8 @@ def build_pdf(report, flags, profile: dict, doc, language: str = "English",
     story += [Spacer(1, 14), _box([_p(L["disclaimer"], "small")], colors.HexColor("#f1f3f5"))]
 
     footer_text = f"{L['generated']}  ·  {date.today():%d-%m-%Y}"
-    tpl.build(story, onFirstPage=lambda c, d: _footer(c, d, footer_text),
-              onLaterPages=lambda c, d: _footer(c, d, footer_text))
+    tpl.build(story, onFirstPage=lambda c, d: _footer(c, d, footer_text, font),
+              onLaterPages=lambda c, d: _footer(c, d, footer_text, font))
     return buf.getvalue()
 
 
@@ -326,7 +370,7 @@ def build_prescription_pdf(rx, profile: dict, doc) -> bytes:
     if len(cells) % 2:
         cells.append(["", ""])
     rows = [cells[i] + cells[i + 1] for i in range(0, len(cells), 2)]
-    info_t = Table(rows, colWidths=[width * 0.14, width * 0.36, width * 0.14, width * 0.36])
+    info_t = Table(rows, colWidths=[width * 0.18, width * 0.32, width * 0.18, width * 0.32])
     info_t.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 0.4, LINE),
                                 ("TOPPADDING", (0, 0), (-1, -1), 3),
                                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))

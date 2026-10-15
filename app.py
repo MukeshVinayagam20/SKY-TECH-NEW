@@ -8,12 +8,14 @@ from dotenv import load_dotenv
 from core.ingest import file_to_images
 from core.extract import extract_document
 from core.rules import flag_all, parse_age, bmi_info, FlaggedResult
-from core.analyze import build_report, ABNORMAL
-from core.i18n import fmt_range, fmt_value, profile_lines
+from core.analyze import build_report, translate_report, ABNORMAL
+from core.i18n import LABELS, fmt_range, fmt_value, profile_lines
 from core.schemas import ExtractedDocument
 from core.analyze import HealthReport
 from core import cache
 from core import prescription as rxmod
+
+LANGUAGES = ("English", "Tamil")
 
 load_dotenv()
 
@@ -25,20 +27,36 @@ STATUS_ICON = {"NORMAL": "🟢", "LOW": "🔵", "HIGH": "🟠", "CRITICAL LOW": 
                "CRITICAL HIGH": "🔴", "TEXT": "⚪", "UNKNOWN": "⚪"}
 STATUS_BG = {"NORMAL": "#e8f5e9", "LOW": "#e3f2fd", "HIGH": "#fff3e0",
              "CRITICAL LOW": "#ffcdd2", "CRITICAL HIGH": "#ffcdd2"}
-URGENCY_LABEL = {"routine": "Routine", "see_doctor_soon": "See your doctor soon",
-                 "urgent": "Urgent: contact a doctor today"}
 DISCLAIMER = ("This report explains your document in simple words. It is not a diagnosis "
               "or a prescription. Always follow your doctor's advice.")
 
 
 # ---------------- helpers: rebuild state from the session + disk cache ----------------
-def _flag_json(f: FlaggedResult) -> dict:
+def _flag_json(f: FlaggedResult, L: dict) -> dict:
     d = f.to_dict()
     d["value_fmt"] = fmt_value(f)
     d["range_fmt"] = fmt_range(f)
     d["status_icon"] = STATUS_ICON.get(f.status, "⚪")
     d["status_bg"] = STATUS_BG.get(f.status, "#ffffff")
+    d["status_name"] = L["status_names"].get(f.status, f.status)
     return d
+
+
+def _language() -> str:
+    lang = session.get("language", "English")
+    return lang if lang in LANGUAGES else "English"
+
+
+def _translated_report(report: HealthReport, rep_key: str, language: str) -> HealthReport:
+    """Translate once per (report, language) and cache the result on disk."""
+    if language == "English":
+        return report
+    tr_key = cache.make_key(rep_key, language)
+    translated = cache.load("report_tr", tr_key, HealthReport)
+    if translated is None:
+        translated = translate_report(report, language)
+        cache.save("report_tr", tr_key, translated)
+    return translated
 
 
 def _current_doc_and_flags():
@@ -118,6 +136,8 @@ def analyze():
         "height": num("height") or None,
     }
     session["profile_in"] = profile_in
+    language = request.form.get("language") or "English"
+    session["language"] = language if language in LANGUAGES else "English"
 
     try:
         images = file_to_images(upload.read(), file_name)
@@ -141,13 +161,17 @@ def analyze():
         if report is None:
             report = build_report(doc, flags, ai_profile)
             cache.save("report", rep_key, report)
+
+        display_report = _translated_report(report, rep_key, session["language"])
     except Exception as e:
         return jsonify(error=f"Could not analyse the document. {e}"), 500
 
-    return jsonify(result=_build_result_payload(doc, flags, report, rep_key, img_key, profile))
+    return jsonify(result=_build_result_payload(doc, flags, display_report, rep_key, img_key,
+                                                 profile, session["language"]))
 
 
-def _build_result_payload(doc, flags, report, rep_key, img_key, profile) -> dict:
+def _build_result_payload(doc, flags, report, rep_key, img_key, profile, language: str) -> dict:
+    L = LABELS[language]
     measured = [f for f in flags if f.status not in ("TEXT", "UNKNOWN")]
     abnormal = [f for f in measured if f.status in ABNORMAL]
     critical = [f.test_name for f in abnormal if f.status.startswith("CRITICAL")]
@@ -155,11 +179,24 @@ def _build_result_payload(doc, flags, report, rep_key, img_key, profile) -> dict
     low_conf = ([m.name for m in doc.medicines if m.confidence < 0.6]
                 + [r.test_name for r in doc.lab_results if r.confidence < 0.6])
 
+    label_keys = (
+        "summary", "normal_results", "normal_line", "needs_attention", "your_value_line",
+        "what_measures", "possible_causes", "food_tips", "doctor_may", "diet", "questions",
+        "warning", "medicines", "used_for", "how_to_take", "side_effects", "precautions",
+        "meds_caution", "no_meds", "test", "your_value", "normal_range", "status", "note",
+        "tests_checked", "normal", "need_attention", "critical_alert", "tab_report", "tab_tests",
+        "tab_meds", "tab_data", "download_pdf", "document", "date", "doctor", "lab", "disclaimer",
+    )
+    labels = {k: L[k] for k in label_keys}
+    labels["status_names"] = L["status_names"]
+
     return {
         "rep_key": rep_key,
+        "language": language,
+        "labels": labels,
         "image_count": cache.image_count(img_key),
         "img_key": img_key,
-        "profile_lines": profile_lines(profile, "English"),
+        "profile_lines": profile_lines(profile, language),
         "document": {
             "type": doc.document_type.replace("_", " ").title(),
             "date": doc.document_date or "-",
@@ -169,7 +206,7 @@ def _build_result_payload(doc, flags, report, rep_key, img_key, profile) -> dict
         "counts": {"checked": len(measured), "normal": len(measured) - len(abnormal),
                    "attention": len(abnormal)},
         "critical": critical,
-        "flags": [_flag_json(f) for f in flags],
+        "flags": [_flag_json(f, L) for f in flags],
         "report": {
             "overall_summary": report.overall_summary,
             "normal_results": [{"test": f.test_name, "value": fmt_value(f), "range": fmt_range(f)}
@@ -181,8 +218,8 @@ def _build_result_payload(doc, flags, report, rep_key, img_key, profile) -> dict
                 "possible_causes": fnd.possible_causes,
                 "food_and_lifestyle_tips": fnd.food_and_lifestyle_tips,
                 "what_your_doctor_may_do": fnd.what_your_doctor_may_do,
-                "urgency": fnd.urgency, "urgency_label": URGENCY_LABEL[fnd.urgency],
-                "value": next((_flag_json(f) for f in flags if f.test_name == fnd.test_name), None),
+                "urgency": fnd.urgency, "urgency_label": L["urgency"][fnd.urgency],
+                "value": next((_flag_json(f, L) for f in flags if f.test_name == fnd.test_name), None),
             } for fnd in report.findings],
             "diet_and_lifestyle": report.diet_and_lifestyle,
             "questions_for_doctor": report.questions_for_doctor,
@@ -204,8 +241,10 @@ def state():
         return jsonify(result=None)
     doc, flags, report, rep_key = bundle
     profile = _current_profile()
-    return jsonify(result=_build_result_payload(doc, flags, report, rep_key,
-                                                 session["img_key"], profile))
+    language = _language()
+    display_report = _translated_report(report, rep_key, language)
+    return jsonify(result=_build_result_payload(doc, flags, display_report, rep_key,
+                                                 session["img_key"], profile, language))
 
 
 @app.route("/api/images/<img_key>/<int:index>")
@@ -301,9 +340,11 @@ def report_pdf():
     doc, flags, report, rep_key = bundle
     profile = _current_profile()
     rx = rxmod.load(rep_key)
+    language = _language()
+    display_report = _translated_report(report, rep_key, language)
     try:
         from core.pdf_report import build_pdf
-        pdf_bytes = build_pdf(report, flags, profile, doc, "English", prescription=rx)
+        pdf_bytes = build_pdf(display_report, flags, profile, doc, language, prescription=rx)
     except Exception as e:
         return f"PDF could not be created: {e}", 500
     return send_file(io.BytesIO(pdf_bytes), mimetype="application/pdf",
@@ -331,4 +372,7 @@ def prescription_pdf():
 
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "true").lower() == "true"
-    app.run(debug=debug, use_reloader=debug, port=int(os.getenv("PORT", 5000)))
+    # "stat" reloader + excluding the venv: the watchdog reloader saw lazy imports in
+    # site-packages (e.g. anyio via ollama) as changes and restarted mid-request.
+    app.run(debug=debug, use_reloader=debug, port=int(os.getenv("PORT", 5000)),
+            reloader_type="stat", exclude_patterns=["*site-packages*"])

@@ -171,7 +171,7 @@ ITEMS (JSON list):
 """
 
 SKIP_KEYS = {"test_name", "name", "urgency"}
-BATCH = 20                      # bigger batches = fewer slow AI calls
+BATCH = 8                       # Tamil is token-heavy: keep each call well under the timeout
 
 
 def _translate_batch(texts: list[str], language: str) -> list[str]:
@@ -182,6 +182,8 @@ def _translate_batch(texts: list[str], language: str) -> list[str]:
                 items=json.dumps(texts, ensure_ascii=False, indent=1)), _Items, task="text").items
         except Exception as e:
             print(f"[translate] batch failed: {e}")
+            if "timed out" in str(e).lower():
+                break                                   # a retry would just time out again
             continue
         if len(out) == len(texts) and sum(has_tamil(t) for t in out) >= len(texts) * 0.7:
             return out

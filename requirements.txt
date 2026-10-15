@@ -7,3 +7,4 @@ python-dotenv
 ollama
 google-genai
 reportlab
+uharfbuzz

@@ -31,6 +31,12 @@
         <label>Height (cm)
           <input type="number" name="height" id="f-height" min="0" max="250" step="0.5">
         </label>
+        <label>Report language
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="language" value="English" id="f-lang-en" checked> English</label>
+            <label class="radio-option"><input type="radio" name="language" value="Tamil" id="f-lang-ta"> தமிழ் (Tamil)</label>
+          </div>
+        </label>
       </form>
     </aside>
 
@@ -59,20 +65,20 @@
               <p id="doc-meta" class="caption"></p>
 
               <div class="metrics">
-                <div class="metric"><span id="m-checked">0</span><label>Tests checked</label></div>
-                <div class="metric"><span id="m-normal">0</span><label>Normal</label></div>
-                <div class="metric"><span id="m-attention">0</span><label>Need attention</label></div>
+                <div class="metric"><span id="m-checked">0</span><label id="m-checked-label">Tests checked</label></div>
+                <div class="metric"><span id="m-normal">0</span><label id="m-normal-label">Normal</label></div>
+                <div class="metric"><span id="m-attention">0</span><label id="m-attention-label">Need attention</label></div>
               </div>
               <div id="critical-alert" class="banner error" hidden></div>
 
               <button id="pdf-top" class="primary full">⬇️ Download report (PDF)</button>
 
               <div class="tabs">
-                <button class="tab-btn active" data-tab="report">📋 Simple report</button>
-                <button class="tab-btn" data-tab="tests">🧪 Test results</button>
-                <button class="tab-btn" data-tab="meds">💊 Medicines</button>
+                <button class="tab-btn active" data-tab="report" id="tab-btn-report">📋 Simple report</button>
+                <button class="tab-btn" data-tab="tests" id="tab-btn-tests">🧪 Test results</button>
+                <button class="tab-btn" data-tab="meds" id="tab-btn-meds">💊 Medicines</button>
                 <button class="tab-btn" data-tab="doctor">🩺 Doctor review</button>
-                <button class="tab-btn" data-tab="data">🗂️ Extracted data</button>
+                <button class="tab-btn" data-tab="data" id="tab-btn-data">🗂️ Extracted data</button>
               </div>
 
               <section class="tab-panel" id="tab-report"></section>
@@ -81,7 +87,7 @@
               <section class="tab-panel" id="tab-doctor" hidden></section>
               <section class="tab-panel" id="tab-data" hidden></section>
 
-              <p class="caption disclaimer">⚕️ This report explains your document in simple words. It is not a diagnosis or a prescription. Always follow your doctor's advice.</p>
+              <p class="caption disclaimer" id="report-disclaimer">⚕️ This report explains your document in simple words. It is not a diagnosis or a prescription. Always follow your doctor's advice.</p>
               <hr>
               <button id="pdf-bottom" class="primary full">⬇️ Download report (PDF)</button>
             </div>

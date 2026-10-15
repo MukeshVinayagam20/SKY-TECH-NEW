@@ -111,7 +111,9 @@ def _call_ollama(prompt: str, images: list[bytes], schema: dict, model: str) -> 
         model=model,
         messages=[message],
         format=schema,                       # forces JSON in this shape
-        options={"temperature": 0, "num_ctx": 8192},
+        # num_predict caps runaway output: small local models can loop on one line
+        # (seen with qwen2.5vl on Tamil) until they hit the timeout.
+        options={"temperature": 0, "num_ctx": 8192, "num_predict": 3000},
     )
     if not USING_OLLAMA_CLOUD:
         kwargs["keep_alive"] = "30m"         # local only: keep the model in memory between calls
